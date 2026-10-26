@@ -2,13 +2,15 @@
 api_client.py — KYA backend HTTP client.
 All functions return parsed JSON or None on error, and surface errors via st.error().
 """
+import os
 import requests
 import streamlit as st
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _base() -> str:
-    return st.session_state.get("backend_url", "http://127.0.0.1:8000").rstrip("/")
+    default_url = os.getenv("KYA_BACKEND_URL", "http://127.0.0.1:8001")
+    return st.session_state.get("backend_url", default_url).rstrip("/")
 
 def _admin_headers() -> dict:
     key = st.session_state.get("admin_key", "")
@@ -16,28 +18,40 @@ def _admin_headers() -> dict:
 
 def _get(path: str, params: dict | None = None):
     try:
-        r = requests.get(f"{_base()}{path}", params=params, timeout=8)
+        r = requests.get(f"{_base()}{path}", params=params, timeout=10)
         r.raise_for_status()
         return r.json()
     except requests.exceptions.ConnectionError:
         st.error("❌ Cannot connect to backend. Is the KYA server running?")
     except requests.exceptions.HTTPError as e:
-        st.error(f"❌ API error {e.response.status_code}: {e.response.text}")
+        detail = e.response.text
+        try:
+            detail = e.response.json().get("detail", detail)
+        except Exception:
+            pass
+        st.error(f"❌ API error {e.response.status_code}: {detail}")
     except Exception as e:
         st.error(f"❌ Unexpected error: {e}")
     return None
 
-def _post(path: str, json_body: dict, admin: bool = False, params: dict | None = None):
+def _post(path: str, json_body: dict, admin: bool = False, params: dict | None = None, timeout: int = 10):
     try:
         headers = _admin_headers() if admin else {}
         r = requests.post(f"{_base()}{path}", json=json_body, headers=headers,
-                          params=params, timeout=8)
+                          params=params, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except requests.exceptions.ConnectionError:
         st.error("❌ Cannot connect to backend.")
     except requests.exceptions.HTTPError as e:
-        st.error(f"❌ API error {e.response.status_code}: {e.response.text}")
+        detail = e.response.text
+        try:
+            detail = e.response.json().get("detail", detail)
+        except Exception:
+            pass
+        st.error(f"❌ API error {e.response.status_code}: {detail}")
+    except requests.exceptions.Timeout:
+        st.error(f"❌ Request to {path} timed out after {timeout} seconds.")
     except Exception as e:
         st.error(f"❌ Unexpected error: {e}")
     return None
@@ -45,13 +59,18 @@ def _post(path: str, json_body: dict, admin: bool = False, params: dict | None =
 def _patch(path: str, json_body: dict, params: dict | None = None):
     try:
         r = requests.patch(f"{_base()}{path}", json=json_body,
-                           headers=_admin_headers(), params=params, timeout=8)
+                           headers=_admin_headers(), params=params, timeout=10)
         r.raise_for_status()
         return r.json()
     except requests.exceptions.ConnectionError:
         st.error("❌ Cannot connect to backend.")
     except requests.exceptions.HTTPError as e:
-        st.error(f"❌ API error {e.response.status_code}: {e.response.text}")
+        detail = e.response.text
+        try:
+            detail = e.response.json().get("detail", detail)
+        except Exception:
+            pass
+        st.error(f"❌ API error {e.response.status_code}: {detail}")
     except Exception as e:
         st.error(f"❌ Unexpected error: {e}")
     return None
@@ -60,6 +79,9 @@ def _patch(path: str, json_body: dict, params: dict | None = None):
 
 def get_health():
     return _get("/api/health")
+
+def get_workbench_config():
+    return _get("/api/workbench/config")
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -90,7 +112,12 @@ def patch_policy(policy_id: str, changes: dict):
 
 # ── Governance / Evaluate ─────────────────────────────────────────────────────
 
+def evaluate_kya(body: dict):
+    """Submits action evaluation to SNS Agent Workbench workflow via POST /api/kya/evaluate."""
+    return _post("/api/kya/evaluate", body, timeout=65)
+
 def evaluate(body: dict):
+    """Local demo / fallback evaluator."""
     return _post("/api/governance/evaluate", body)
 
 # ── Runtime Events ────────────────────────────────────────────────────────────
@@ -127,7 +154,7 @@ def reset_demo():
     return _post("/api/demo/reset", {}, admin=True)
 
 def run_demo_scenario():
-    """Fire the three canonical demo evaluation events."""
+    """Fire the three canonical demo evaluation events through KYA evaluate."""
     results = []
     scenarios = [
         {"agent_id": "agent-analysis",  "action": "read_document",   "resource": "claim_documents",  "correlation_id": "demo-run-1"},
@@ -136,7 +163,7 @@ def run_demo_scenario():
          "delegated_by": "agent-analysis", "delegation_id": "del-analysis-retrieval"},
     ]
     for s in scenarios:
-        r = evaluate(s)
+        r = evaluate_kya(s) or evaluate(s)
         if r:
             results.append(r)
     return results

@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import streamlit as st
-from api_client import evaluate, list_agents, list_delegations
+from api_client import evaluate_kya, evaluate, list_agents, list_delegations
 from components import page_header, result_card, decision_badge, risk_badge, sidebar_info
 
 st.set_page_config(page_title="Evaluate · KYA", page_icon="🎯", layout="wide")
@@ -103,8 +103,8 @@ with col_result:
             if delegated_by.strip():  body["delegated_by"]   = delegated_by.strip()
             if delegation_id:         body["delegation_id"]  = delegation_id
 
-            with st.spinner("Evaluating against active policies…"):
-                result = evaluate(body)
+            with st.spinner("Submitting request to SNS Agent Workbench workflow..."):
+                result = evaluate_kya(body)
 
             if result:
                 result_card(result)
@@ -150,8 +150,8 @@ for col, (label, body, color) in zip(sc_cols, scenarios):
             unsafe_allow_html=True,
         )
         if st.button(f"Run", key=f"quick_{label}", use_container_width=True):
-            with st.spinner("Evaluating…"):
-                r = evaluate(body)
+            with st.spinner("Executing in SNS Agent Workbench…"):
+                r = evaluate_kya(body)
             if r:
                 result_card(r)
                 if "eval_history" not in st.session_state:

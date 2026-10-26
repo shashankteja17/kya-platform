@@ -17,7 +17,8 @@ st.set_page_config(
 
 # ── Session-state defaults ────────────────────────────────────────────────────
 if "backend_url" not in st.session_state:
-    st.session_state["backend_url"] = "http://127.0.0.1:8000"
+    import os
+    st.session_state["backend_url"] = os.getenv("KYA_BACKEND_URL", "http://127.0.0.1:8001")
 if "admin_key" not in st.session_state:
     st.session_state["admin_key"] = "local-demo-change-me"
 
